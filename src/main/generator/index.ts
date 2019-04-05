@@ -1,16 +1,27 @@
 import * as ts from 'typescript'
 
 import {
-    IIdentifierMap,
-    IMakeOptions,
-    INamespaceFile,
-    IRenderedCache,
-    IRenderedFile,
+    ConstDefinition,
+    EnumDefinition,
+    ExceptionDefinition,
+    ServiceDefinition,
+    StructDefinition,
+    ThriftStatement,
+    TypedefDefinition,
+    UnionDefinition,
+} from '@creditkarma/thrift-parser'
+
+import { rendererForTarget } from '../render'
+import { processStatements, renderStatement } from './iterator'
+
+import { exportsForFile } from '../resolver/utils'
+import {
+    IGeneratedFile,
+    INamespace,
     IRenderer,
     IRenderState,
+    IThriftProject,
 } from '../types'
-
-import { processStatements } from './iterator'
 
 /**
  * Export this directly is useful for generating code without generating files
@@ -30,31 +41,152 @@ export { processStatements } from './iterator'
  */
 export function generateFile(
     renderer: IRenderer,
-    resolvedFile: INamespaceFile,
-    options: IMakeOptions,
-    cache: IRenderedCache = {},
-): IRenderedFile {
-    const cacheKey: string = resolvedFile.namespace.path
+    statements: Array<ThriftStatement>,
+    state: IRenderState,
+): Array<ts.Statement> {
+    return processStatements(statements, state, renderer)
+}
 
-    if (cacheKey === '/' || cache[cacheKey] === undefined) {
-        const identifiers: IIdentifierMap = resolvedFile.identifiers
-        const state: IRenderState = { options, identifiers }
-        const statements: Array<ts.Statement> = [
-            ...renderer.renderIncludes(
-                resolvedFile.namespace.path,
-                resolvedFile,
-                options,
-            ),
-            ...processStatements(resolvedFile.body, state, renderer),
-        ]
+export function generateProject(
+    thriftProject: IThriftProject,
+): Array<IGeneratedFile> {
+    const result: Array<IGeneratedFile> = []
+    const renderer: IRenderer = rendererForTarget(thriftProject.options.target)
 
-        cache[cacheKey] = {
-            outPath: resolvedFile.namespace.path,
-            namespace: resolvedFile.namespace,
-            statements,
-            identifiers,
+    Object.keys(thriftProject.namespaces).forEach((namespaceName: string) => {
+        const namespace: INamespace = thriftProject.namespaces[namespaceName]
+
+        if (namespace.constants.length > 0) {
+            const constantsFile: IGeneratedFile = {
+                type: 'GeneratedFile',
+                name: 'constants',
+                path: namespace.namespace.path,
+                body: [],
+            }
+
+            const state: IRenderState = {
+                options: thriftProject.options,
+                currentNamespace: namespace,
+                currentDefinitions: exportsForFile(namespace.constants),
+                project: thriftProject,
+            }
+
+            namespace.constants.forEach(
+                (statement: ConstDefinition | EnumDefinition) => {
+                    constantsFile.body = [
+                        ...constantsFile.body,
+                        ...renderStatement(statement, state, renderer),
+                    ]
+                },
+            )
+
+            constantsFile.body = [
+                ...renderer.renderImports(namespace.constants, state),
+                ...constantsFile.body,
+            ]
+
+            result.push(constantsFile)
         }
-    }
 
-    return cache[cacheKey]
+        if (namespace.typedefs.length > 0) {
+            const typedefsFile: IGeneratedFile = {
+                type: 'GeneratedFile',
+                name: 'typedefs',
+                path: namespace.namespace.path,
+                body: [],
+            }
+
+            const state: IRenderState = {
+                options: thriftProject.options,
+                currentNamespace: namespace,
+                currentDefinitions: exportsForFile(namespace.typedefs),
+                project: thriftProject,
+            }
+
+            namespace.typedefs.forEach((statement: TypedefDefinition) => {
+                typedefsFile.body = [
+                    ...typedefsFile.body,
+                    ...renderStatement(statement, state, renderer),
+                ]
+            })
+
+            typedefsFile.body = [
+                ...renderer.renderImports(namespace.typedefs, state),
+                ...typedefsFile.body,
+            ]
+
+            result.push(typedefsFile)
+        }
+
+        ;[
+            ...namespace.structs,
+            ...namespace.unions,
+            ...namespace.exceptions,
+        ].forEach(
+            (
+                statement:
+                    | StructDefinition
+                    | UnionDefinition
+                    | ExceptionDefinition,
+            ) => {
+                const state: IRenderState = {
+                    options: thriftProject.options,
+                    currentNamespace: namespace,
+                    currentDefinitions: exportsForFile([statement]),
+                    project: thriftProject,
+                }
+
+                const structFile: IGeneratedFile = {
+                    type: 'GeneratedFile',
+                    name: statement.name.value,
+                    path: namespace.namespace.path,
+                    body: renderStatement(statement, state, renderer),
+                }
+
+                structFile.body = [
+                    ...renderer.renderImports([statement], state),
+                    ...structFile.body,
+                ]
+
+                result.push(structFile)
+            },
+        )
+
+        namespace.services.forEach((statement: ServiceDefinition) => {
+            const state: IRenderState = {
+                options: thriftProject.options,
+                currentNamespace: namespace,
+                currentDefinitions: exportsForFile([statement]),
+                project: thriftProject,
+            }
+
+            const serviceFile: IGeneratedFile = {
+                type: 'GeneratedFile',
+                name: statement.name.value,
+                path: namespace.namespace.path,
+                body: renderStatement(statement, state, renderer),
+            }
+
+            serviceFile.body = [
+                ...renderer.renderImports([statement], state),
+                ...serviceFile.body,
+            ]
+
+            result.push(serviceFile)
+        })
+
+        result.push({
+            type: 'GeneratedFile',
+            name: 'index',
+            path: namespace.namespace.path,
+            body: renderer.renderIndex({
+                options: thriftProject.options,
+                currentNamespace: namespace,
+                currentDefinitions: {},
+                project: thriftProject,
+            }),
+        })
+    })
+
+    return result
 }
