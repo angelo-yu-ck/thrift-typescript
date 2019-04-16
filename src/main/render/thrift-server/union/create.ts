@@ -2,8 +2,8 @@ import * as ts from 'typescript'
 
 import {
     FieldDefinition,
-    InterfaceWithFields,
-    SyntaxType,
+    // InterfaceWithFields,
+    // SyntaxType,
     UnionDefinition,
 } from '@creditkarma/thrift-parser'
 
@@ -15,18 +15,20 @@ import { createFunctionParameter } from '../utils'
 
 import {
     createEqualsCheck,
-    getInitializerForField,
-    hasRequiredField,
+    // getInitializerForField,
+    // hasRequiredField,
     throwProtocolException,
 } from '../utils'
 
 import { IRenderState } from '../../../types'
 
 import {
-    createCheckForFields,
+    // createCheckForFields,
     createSkipBlock,
     readValueForFieldType,
 } from '../struct/decode'
+
+import { createReturnForFields, endReadForField } from './decode'
 
 import { strictNameForStruct } from '../struct/utils'
 import { fieldTypeAccess, unionTypeName } from './union-fields'
@@ -139,39 +141,39 @@ function createUnionObjectForField(
     )
 }
 
-function createReturnForFields(
-    node: UnionDefinition,
-    fields: Array<FieldDefinition>,
-    state: IRenderState,
-): ts.Statement {
-    if (state.options.strictUnions) {
-        const [head, ...tail] = fields
-        if (tail.length > 0) {
-            return ts.createIf(
-                ts.createPropertyAccess(
-                    COMMON_IDENTIFIERS._returnValue,
-                    head.name.value,
-                ),
-                ts.createBlock(
-                    [
-                        ts.createReturn(
-                            createUnionObjectForField(node, head, state),
-                        ),
-                    ],
-                    true,
-                ),
-                ts.createBlock(
-                    [createReturnForFields(node, tail, state)],
-                    true,
-                ),
-            )
-        } else {
-            return ts.createReturn(createUnionObjectForField(node, head, state))
-        }
-    } else {
-        return ts.createReturn(COMMON_IDENTIFIERS._returnValue)
-    }
-}
+// function createReturnForFields(
+//     node: UnionDefinition,
+//     fields: Array<FieldDefinition>,
+//     state: IRenderState,
+// ): ts.Statement {
+//     if (state.options.strictUnions) {
+//         const [head, ...tail] = fields
+//         if (tail.length > 0) {
+//             return ts.createIf(
+//                 ts.createPropertyAccess(
+//                     COMMON_IDENTIFIERS._returnValue,
+//                     head.name.value,
+//                 ),
+//                 ts.createBlock(
+//                     [
+//                         ts.createReturn(
+//                             createUnionObjectForField(node, head, state),
+//                         ),
+//                     ],
+//                     true,
+//                 ),
+//                 ts.createBlock(
+//                     [createReturnForFields(node, tail, state)],
+//                     true,
+//                 ),
+//             )
+//         } else {
+//             return ts.createReturn(createUnionObjectForField(node, head, state))
+//         }
+//     } else {
+//         return ts.createReturn(COMMON_IDENTIFIERS._returnValue)
+//     }
+// }
 
 /**
  * EXAMPLE
@@ -201,7 +203,7 @@ export function createCaseForField(
             [
                 incrementFieldsSet(),
                 ...readValueForFieldType(field.fieldType, fieldAlias, state),
-                ...endReadForField(fieldAlias, field),
+                ...endReadForField(node, fieldAlias, field, state),
             ],
             true,
         ),
@@ -218,77 +220,27 @@ export function createCaseForField(
     }
 }
 
-export function endReadForField(
-    fieldName: ts.Identifier,
-    field: FieldDefinition,
-): Array<ts.Statement> {
-    switch (field.fieldType.type) {
-        case SyntaxType.VoidKeyword:
-            return []
+// export function endReadForField(
+//     fieldName: ts.Identifier,
+//     field: FieldDefinition,
+// ): Array<ts.Statement> {
+//     switch (field.fieldType.type) {
+//         case SyntaxType.VoidKeyword:
+//             return []
 
-        default:
-            return [
-                ts.createStatement(
-                    ts.createAssignment(
-                        COMMON_IDENTIFIERS._returnValue,
-                        ts.createObjectLiteral([
-                            ts.createPropertyAssignment(
-                                field.name.value,
-                                fieldName,
-                            ),
-                        ]),
-                    ),
-                ),
-            ]
-    }
-}
-
-export function createReturnForStruct(
-    struct: InterfaceWithFields,
-    state: IRenderState,
-): ts.Statement {
-    if (hasRequiredField(struct)) {
-        return ts.createIf(
-            createCheckForFields(struct.fields),
-            ts.createBlock(
-                [
-                    ts.createReturn(
-                        ts.createObjectLiteral(
-                            struct.fields.map(
-                                (
-                                    next: FieldDefinition,
-                                ): ts.ObjectLiteralElementLike => {
-                                    return ts.createPropertyAssignment(
-                                        next.name.value,
-                                        getInitializerForField(
-                                            '_args',
-                                            next,
-                                            state,
-                                        ),
-                                    )
-                                },
-                            ),
-                            true, // multiline
-                        ),
-                    ),
-                ],
-                true,
-            ),
-            ts.createBlock(
-                [
-                    throwProtocolException(
-                        'UNKNOWN',
-                        `Unable to read ${struct.name.value} from input`,
-                    ),
-                ],
-                true,
-            ),
-        )
-    } else {
-        return ts.createReturn(
-            ts.createNew(ts.createIdentifier(struct.name.value), undefined, [
-                COMMON_IDENTIFIERS._args,
-            ]),
-        )
-    }
-}
+//         default:
+//             return [
+//                 ts.createStatement(
+//                     ts.createAssignment(
+//                         COMMON_IDENTIFIERS._returnValue,
+//                         ts.createObjectLiteral([
+//                             ts.createPropertyAssignment(
+//                                 field.name.value,
+//                                 fieldName,
+//                             ),
+//                         ]),
+//                     ),
+//                 ),
+//             ]
+//     }
+// }

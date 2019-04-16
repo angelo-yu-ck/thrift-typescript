@@ -36,8 +36,8 @@ import { validateFile } from './validator'
 
 import * as Parser from './parser'
 import * as Resolver from './resolver'
-import * as Validator from './validator'
 import * as Utils from './utils'
+import * as Validator from './validator'
 
 export { Resolver }
 export { Parser }
